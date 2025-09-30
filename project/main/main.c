@@ -6,8 +6,7 @@
 #include "driver/uart.h"
 #include "driver/ledc.h"
 #include "driver/gpio.h"
-#include "driver/pulse_cnt.h" // Driver moderno
-#include "esp_log.h" 
+// No se incluye driver/pulse_cnt.h
 
 // --- Pines ---
 #define MOTOR_PIN_IN1       (2)
@@ -23,17 +22,21 @@
 #define PWM_RESOLUTION      (LEDC_TIMER_10_BIT)
 #define LEDC_CHANNEL_ENA    LEDC_CHANNEL_0
 
-// --- Variables Globales y Manejadores ---
-pcnt_unit_handle_t pcnt_unit = NULL;
-volatile int encoder_ticks = 0; 
+// --- Variables Globales ---
 volatile int motor_duty_percent = 0;
-volatile int encoder_setpoint = 0; 
+volatile int encoder_setpoint = 0; // Almacena el duty cycle recibido por UART
 
-// --- Estructura de Paquete UART ---
+// --- Estructura de Paquete UART (MODIFICADA) ---
+// El paquete mantiene su tamaño original (7 bytes) para no romper la sincronización
 typedef struct {
     uint8_t start_byte;
-    int8_t motor_direction; 
-    int32_t raw_encoder_ticks;
+    int8_t motor_direction;  
+    
+    // *** NUEVOS CAMPOS ***
+    int8_t a_level;         // Estado de Pin A (0 o 1)
+    int8_t b_level;         // Estado de Pin B (0 o 1)
+    // *********************
+
     uint8_t end_byte;
 } __attribute__((packed)) MotorDataPacket_t;
 
@@ -72,43 +75,13 @@ void setup_uart() {
     uart_param_config(UART_NUM_0, &uart_config);
 }
 
-void setup_encoder() {
-    // 1. Configuración de la Unidad PCNT
-    pcnt_unit_config_t unit_config = {
-        .low_limit = -32768, .high_limit = 32767, .intr_priority = 0,
-    };
-    ESP_ERROR_CHECK(pcnt_new_unit(&unit_config, &pcnt_unit));
+void setup_encoder_gpio() {
+    // Configura los pines del encoder como entradas GPIO con pull-up.
+    gpio_set_direction(ENCODER_PIN_A, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(ENCODER_PIN_A, GPIO_PULLUP_ONLY);
 
-    // 2. Configuración del Filtro Glitch
-    pcnt_glitch_filter_config_t filter_config = {
-        .max_glitch_ns = 10000,
-    };
-    ESP_ERROR_CHECK(pcnt_unit_set_glitch_filter(pcnt_unit, &filter_config));
-
-    // 3. Configuración de Canales (Cuadratura 4X)
-    pcnt_channel_handle_t pcnt_chan_a = NULL;
-    pcnt_chan_config_t chan_config_a = { 
-        .edge_gpio_num = ENCODER_PIN_A, .level_gpio_num = ENCODER_PIN_B,
-    };
-    ESP_ERROR_CHECK(pcnt_new_channel(pcnt_unit, &chan_config_a, &pcnt_chan_a));
-
-    pcnt_channel_handle_t pcnt_chan_b = NULL;
-    pcnt_chan_config_t chan_config_b = {
-        .edge_gpio_num = ENCODER_PIN_B, .level_gpio_num = ENCODER_PIN_A,
-    };
-    ESP_ERROR_CHECK(pcnt_new_channel(pcnt_unit, &chan_config_b, &pcnt_chan_b));
-    
-    // 4. Configuración de Acciones de Cuadratura
-    ESP_ERROR_CHECK(pcnt_channel_set_edge_action(pcnt_chan_a, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE));
-    ESP_ERROR_CHECK(pcnt_channel_set_level_action(pcnt_chan_a, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
-    
-    ESP_ERROR_CHECK(pcnt_channel_set_edge_action(pcnt_chan_b, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE));
-    ESP_ERROR_CHECK(pcnt_channel_set_level_action(pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_INVERSE, PCNT_CHANNEL_LEVEL_ACTION_KEEP));
-
-    // 5. Arranque
-    ESP_ERROR_CHECK(pcnt_unit_enable(pcnt_unit));
-    ESP_ERROR_CHECK(pcnt_unit_clear_count(pcnt_unit));
-    ESP_ERROR_CHECK(pcnt_unit_start(pcnt_unit));
+    gpio_set_direction(ENCODER_PIN_B, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(ENCODER_PIN_B, GPIO_PULLUP_ONLY);
 }
 
 // -------------------------------------------------------------------
@@ -142,35 +115,31 @@ void set_motor_speed(int duty_percent) {
 // -------------------------------------------------------------------
 
 void encoder_task(void *pvParameters) {
-    MotorDataPacket_t data_packet = { .start_byte = 0xA5, .end_byte = 0x5A };
-    // Usamos una variable local para la cuenta anterior para calcular la dirección
-    int previous_ticks = 0; 
-
+    // La estructura ahora se inicializa con 0s, asegurando que 'reserved' sea 0.
+    MotorDataPacket_t data_packet = { 
+        .start_byte = 0xA5, 
+        .end_byte = 0x5A
+    };
+    
     while(1) {
-        int current_ticks = 0;
-        
-        // 1. Lectura de Ticks: Se usa un cast (int*) para eliminar la advertencia 'volatile'
-        ESP_ERROR_CHECK(pcnt_unit_get_count(pcnt_unit, (int*)&encoder_ticks));
-        current_ticks = encoder_ticks;
+        // 1. Lectura digital pura y asignación directa a los nuevos campos
+        data_packet.a_level = (int8_t)gpio_get_level(ENCODER_PIN_A);
+        data_packet.b_level = (int8_t)gpio_get_level(ENCODER_PIN_B);
 
-        data_packet.raw_encoder_ticks = current_ticks;
-
-        // 2. Determinación de Dirección (por comparación de conteo)
-        if (current_ticks > previous_ticks) {
+        // 2. Dirección del motor (del comando de control)
+        if (motor_duty_percent > 0) {
             data_packet.motor_direction = 1; // Avance
-        } else if (current_ticks < previous_ticks) {
+        } else if (motor_duty_percent < 0) {
             data_packet.motor_direction = -1; // Reversa
         } else {
             data_packet.motor_direction = 0; // Estático
         }
         
-        // 3. Actualizar la cuenta anterior para el siguiente ciclo
-        previous_ticks = current_ticks;
-        
-        // 4. Envío de datos
+        // 3. Envío de datos binarios
         uart_write_bytes(UART_NUM_0, (const char *)&data_packet, sizeof(MotorDataPacket_t));
         
-        vTaskDelay(pdMS_TO_TICKS(100));
+        // Muestreo rápido (200 Hz)
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 }
 
@@ -178,13 +147,11 @@ void motor_control_task(void *pvParameters) {
     uint8_t rx_buffer[32];
     int rx_index = 0;
     const int control_loop_ms = 50;
-    const float proportional_gain = 1.0f; // Ganancia P
-
+    
     while (1) {
-        // --- Control de Posición P ---
-        int error = encoder_setpoint - encoder_ticks;
-        int duty_to_apply = (int)(error * proportional_gain);
-
+        // Aplicar el último duty cycle recibido por UART
+        int duty_to_apply = encoder_setpoint; 
+        
         // Saturación
         if (duty_to_apply > 100) duty_to_apply = 100;
         else if (duty_to_apply < -100) duty_to_apply = -100;
@@ -192,7 +159,7 @@ void motor_control_task(void *pvParameters) {
         motor_duty_percent = duty_to_apply;
         set_motor_speed(motor_duty_percent);
 
-        // --- Recepción UART (Setpoint) ---
+        // --- Recepción UART (Nuevo Setpoint / Duty Cycle) ---
         int rx_bytes = uart_read_bytes(UART_NUM_0, rx_buffer + rx_index, 1, pdMS_TO_TICKS(0));
         
         if (rx_bytes > 0) {
@@ -201,6 +168,7 @@ void motor_control_task(void *pvParameters) {
             if (received_char == '\n' || received_char == '\r') {
                 rx_buffer[rx_index] = '\0';
                 
+                // Recibe el nuevo duty cycle (velocidad)
                 sscanf((const char *)rx_buffer, "%d", (int*)&encoder_setpoint);
                 rx_index = 0;
             } else {
@@ -218,7 +186,7 @@ void motor_control_task(void *pvParameters) {
 void app_main(void) {
     setup_pwm();
     setup_uart();
-    setup_encoder();
+    setup_encoder_gpio(); // Configura A y B como entradas GPIO
     
     xTaskCreate(motor_control_task, "motor_control", 4096, NULL, 5, NULL);
     xTaskCreate(encoder_task, "encoder_read", 2048, NULL, 5, NULL);
