@@ -6,8 +6,8 @@
 #include "driver/uart.h"
 #include "driver/ledc.h"
 #include "driver/gpio.h"
-#include "driver/pcnt.h"
-#include "esp_log.h"
+#include "driver/pulse_cnt.h" // Se usa el driver moderno (pulse_cnt.h)
+#include "esp_log.h" 
 #include "sdkconfig.h"
 
 // Define los GPIO para el control del puente H
@@ -25,66 +25,60 @@
 #define LEDC_CHANNEL_ENA LEDC_CHANNEL_0
 
 // Define los pines del encoder
-#define ENCODER_PCNT_UNIT PCNT_UNIT_0
 #define ENCODER_PIN_A (25)
 #define ENCODER_PIN_B (26)
+// La constante COUNTS_PER_OUTPUT_REVOLUTION ya no se usa directamente en el envío
 #define COUNTS_PER_OUTPUT_REVOLUTION (1496.0f)
 
 static const char *TAG = "MOTOR_ENCODER";
 
-// Variable para el contador del encoder y el duty cycle, accesibles por ambas tareas
-volatile int16_t encoder_ticks = 0;
+// *** NUEVO MANEJADOR DEL PCNT ***
+pcnt_unit_handle_t pcnt_unit = NULL;
+
+// *** CORRECCIÓN: Usamos 'int' (32 bits) para la lectura PCNT (compatible con el API) ***
+volatile int encoder_ticks = 0; 
 volatile int motor_duty_percent = 0;
 
-// Define la estructura de datos que se enviará
+// Define la NUEVA estructura de datos que se enviará
 typedef struct {
     uint8_t start_byte;
-    int8_t motor_direction; // Nuevo campo para la dirección
-    float motor_turns;
+    int8_t motor_direction; 
+    int32_t raw_encoder_ticks; // Mandamos los ticks brutos como entero (4 bytes)
     uint8_t end_byte;
 } __attribute__((packed)) MotorDataPacket_t;
 
+// -------------------------------------------------------------------
+// FUNCIONES DE CONFIGURACIÓN Y CONTROL (LEDC/PWM y UART)
+// -------------------------------------------------------------------
+
 void setup_pwm() {
-    // Configura los pines IN1 e IN2 como salidas digitales
     gpio_set_direction(MOTOR_PIN_IN1, GPIO_MODE_OUTPUT);
     gpio_set_direction(MOTOR_PIN_IN2, GPIO_MODE_OUTPUT);
     gpio_set_level(MOTOR_PIN_IN1, 0);
     gpio_set_level(MOTOR_PIN_IN2, 0);
 
-    // Configura el temporizador PWM
     ledc_timer_config_t ledc_timer = {
-        .speed_mode       = LEDC_MODE,
-        .timer_num        = LEDC_TIMER_0,
-        .duty_resolution  = PWM_RESOLUTION,
-        .freq_hz          = PWM_FREQ_HZ,
+        .speed_mode       = LEDC_MODE, .timer_num        = LEDC_TIMER_0,
+        .duty_resolution  = PWM_RESOLUTION, .freq_hz          = PWM_FREQ_HZ,
         .clk_cfg          = LEDC_AUTO_CLK
     };
     ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
 
-    // Configura el canal PWM para el pin ENA
     ledc_channel_config_t ledc_channel_ena = {
-        .speed_mode     = LEDC_MODE,
-        .channel        = LEDC_CHANNEL_ENA,
-        .timer_sel      = LEDC_TIMER_0,
-        .intr_type      = LEDC_INTR_DISABLE,
-        .gpio_num       = MOTOR_PIN_PWM_ENA,
-        .duty           = 0,
-        .hpoint         = 0
+        .speed_mode     = LEDC_MODE, .channel        = LEDC_CHANNEL_ENA,
+        .timer_sel      = LEDC_TIMER_0, .intr_type      = LEDC_INTR_DISABLE,
+        .gpio_num       = MOTOR_PIN_PWM_ENA, .duty           = 0, .hpoint         = 0
     };
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel_ena));
-
     ESP_LOGI(TAG, "PWM configurado en el GPIO %d (ENA).", MOTOR_PIN_PWM_ENA);
     ESP_LOGI(TAG, "Pines de control (IN1, IN2) en los GPIOs %d y %d.", MOTOR_PIN_IN1, MOTOR_PIN_IN2);
 }
 
 void setup_uart() {
     uart_config_t uart_config = {
-        .baud_rate = 115200,
-        .data_bits = UART_DATA_8_BITS,
-        .parity = UART_PARITY_DISABLE,
-        .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_DEFAULT
+        .baud_rate = 115200, .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE, .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE, .source_clk = UART_SCLK_DEFAULT
     };
     uart_driver_install(UART_NUM_0, 256 * 2, 0, 0, NULL, 0);
     uart_param_config(UART_NUM_0, &uart_config);
@@ -97,16 +91,16 @@ void set_motor_speed(int duty_percent) {
     
     if (duty_percent > 0) {
         new_duty_value = (int)((float)duty_percent / 100.0 * max_duty);
-        gpio_set_level(MOTOR_PIN_IN1, 1); // Adelante
+        gpio_set_level(MOTOR_PIN_IN1, 1); 
         gpio_set_level(MOTOR_PIN_IN2, 0);
         ESP_LOGI(TAG, "Motor adelante: %d%%. Ciclo de trabajo: %d", duty_percent, new_duty_value);
     } else if (duty_percent < 0) {
         new_duty_value = (int)((float)abs(duty_percent) / 100.0 * max_duty);
         gpio_set_level(MOTOR_PIN_IN1, 0);
-        gpio_set_level(MOTOR_PIN_IN2, 1); // Reversa
+        gpio_set_level(MOTOR_PIN_IN2, 1); 
         ESP_LOGI(TAG, "Motor reversa: %d%%. Ciclo de trabajo: %d", abs(duty_percent), new_duty_value);
     } else {
-        gpio_set_level(MOTOR_PIN_IN1, 0); // Freno
+        gpio_set_level(MOTOR_PIN_IN1, 0); 
         gpio_set_level(MOTOR_PIN_IN2, 0);
         new_duty_value = 0;
         ESP_LOGI(TAG, "Motor detenido.");
@@ -116,37 +110,58 @@ void set_motor_speed(int duty_percent) {
     ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_ENA);
 }
 
+// -------------------------------------------------------------------
+// CONFIGURACIÓN DEL ENCODER (USANDO EL NUEVO DRIVER pulse_cnt.h)
+// -------------------------------------------------------------------
+
 void setup_encoder() {
-    pcnt_config_t pcnt_config = {
-        .pulse_gpio_num = ENCODER_PIN_A,
-        .ctrl_gpio_num = ENCODER_PIN_B,
-        .channel = PCNT_CHANNEL_0,
-        .unit = ENCODER_PCNT_UNIT,
-        .pos_mode = PCNT_COUNT_INC,
-        .neg_mode = PCNT_COUNT_DEC,
-        .lctrl_mode = PCNT_MODE_REVERSE,
-        .hctrl_mode = PCNT_MODE_KEEP,
-        .counter_h_lim = 0,
-        .counter_l_lim = 0,
+    // 1. Configuración de la Unidad PCNT
+    pcnt_unit_config_t unit_config = {
+        .low_limit = -32768, // Límites de conteo típicos
+        .high_limit = 32767,
+        .intr_priority = 0,
     };
-    pcnt_unit_config(&pcnt_config);
+    ESP_ERROR_CHECK(pcnt_new_unit(&unit_config, &pcnt_unit));
+
+    // 2. Configuración del Filtro (Debe ir en estado INIT)
+    pcnt_glitch_filter_config_t filter_config = {
+        .max_glitch_ns = 10000, // 10 microsegundos de filtro
+    };
+    ESP_ERROR_CHECK(pcnt_unit_set_glitch_filter(pcnt_unit, &filter_config));
+
+    // 3. Configuración de los Canales (Cuadratura 4X)
+    pcnt_channel_handle_t pcnt_chan_a = NULL;
+    pcnt_chan_config_t chan_config_a = { 
+        .edge_gpio_num = ENCODER_PIN_A,
+        .level_gpio_num = ENCODER_PIN_B,
+    };
+    ESP_ERROR_CHECK(pcnt_new_channel(pcnt_unit, &chan_config_a, &pcnt_chan_a));
+
+    pcnt_channel_handle_t pcnt_chan_b = NULL;
+    pcnt_chan_config_t chan_config_b = {
+        .edge_gpio_num = ENCODER_PIN_B,
+        .level_gpio_num = ENCODER_PIN_A,
+    };
+    ESP_ERROR_CHECK(pcnt_new_channel(pcnt_unit, &chan_config_b, &pcnt_chan_b));
     
-    pcnt_config.pulse_gpio_num = ENCODER_PIN_B;
-    pcnt_config.ctrl_gpio_num = ENCODER_PIN_A;
-    pcnt_config.channel = PCNT_CHANNEL_1;
-    pcnt_config.pos_mode = PCNT_COUNT_INC,
-    pcnt_config.neg_mode = PCNT_COUNT_DEC,
-    pcnt_unit_config(&pcnt_config);
+    // 4. Configurar las acciones (Cuadratura)
+    ESP_ERROR_CHECK(pcnt_channel_set_edge_action(pcnt_chan_a, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE));
+    ESP_ERROR_CHECK(pcnt_channel_set_level_action(pcnt_chan_a, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
+    
+    ESP_ERROR_CHECK(pcnt_channel_set_edge_action(pcnt_chan_b, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE));
+    ESP_ERROR_CHECK(pcnt_channel_set_level_action(pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_INVERSE, PCNT_CHANNEL_LEVEL_ACTION_KEEP));
 
-    pcnt_set_filter_value(ENCODER_PCNT_UNIT, 100);
-    pcnt_filter_enable(ENCODER_PCNT_UNIT);
+    // 5. Habilitar e Iniciar
+    ESP_ERROR_CHECK(pcnt_unit_enable(pcnt_unit)); // Pasa a estado ENABLED
+    ESP_ERROR_CHECK(pcnt_unit_clear_count(pcnt_unit));
+    ESP_ERROR_CHECK(pcnt_unit_start(pcnt_unit)); // Ahora puede iniciarse
 
-    pcnt_counter_pause(ENCODER_PCNT_UNIT);
-    pcnt_counter_clear(ENCODER_PCNT_UNIT);
-    pcnt_counter_resume(ENCODER_PCNT_UNIT);
-
-    ESP_LOGI(TAG, "Encoder configurado en la unidad PCNT %d.", ENCODER_PCNT_UNIT);
+    ESP_LOGI(TAG, "Encoder configurado y funcionando.");
 }
+
+// -------------------------------------------------------------------
+// TAREAS DEL FREE RTOS
+// -------------------------------------------------------------------
 
 void encoder_task(void *pvParameters) {
     MotorDataPacket_t data_packet;
@@ -154,12 +169,13 @@ void encoder_task(void *pvParameters) {
     data_packet.end_byte = 0x5A;
 
     while(1) {
-        pcnt_get_counter_value(ENCODER_PCNT_UNIT, &encoder_ticks);
+        // Usamos la variable global 'encoder_ticks' (int) para la lectura.
+        ESP_ERROR_CHECK(pcnt_unit_get_count(pcnt_unit, &encoder_ticks));
         
-        // Calcula el número de vueltas
-        float motor_turns = (float)encoder_ticks / COUNTS_PER_OUTPUT_REVOLUTION;
+        // El paquete envía los ticks brutos (int32_t)
+        data_packet.raw_encoder_ticks = encoder_ticks;
 
-        // Determina la dirección del motor
+        // Determina la dirección del motor (basado en el comando PWM)
         if (motor_duty_percent > 0) {
             data_packet.motor_direction = 1; // Adelante
         } else if (motor_duty_percent < 0) {
@@ -168,8 +184,7 @@ void encoder_task(void *pvParameters) {
             data_packet.motor_direction = 0; // Detenido
         }
         
-        data_packet.motor_turns = motor_turns;
-        
+        // Envía el paquete binario
         uart_write_bytes(UART_NUM_0, (const char *)&data_packet, sizeof(MotorDataPacket_t));
         
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -181,11 +196,13 @@ void motor_control_task(void *pvParameters) {
     int rx_index = 0;
     
     while (1) {
+        // Lee un byte a la vez
         int rx_bytes = uart_read_bytes(UART_NUM_0, rx_buffer + rx_index, 1, pdMS_TO_TICKS(10));
         if (rx_bytes > 0) {
             char received_char = rx_buffer[rx_index];
             if (received_char == '\n' || received_char == '\r') {
                 rx_buffer[rx_index] = '\0';
+                // Intenta convertir la cadena ASCII recibida
                 if (sscanf((const char *)rx_buffer, "%d", (int*)&motor_duty_percent) == 1) {
                     if (motor_duty_percent >= -100 && motor_duty_percent <= 100) {
                         set_motor_speed(motor_duty_percent);
@@ -193,7 +210,8 @@ void motor_control_task(void *pvParameters) {
                         ESP_LOGW(TAG, "Valor fuera de rango (-100 a 100).");
                     }
                 } else {
-                    ESP_LOGW(TAG, "No se pudo convertir a entero.");
+                    // Esta advertencia aparece cuando se reciben datos binarios del encoder
+                    ESP_LOGW(TAG, "No se pudo convertir a entero. (Conflicto de UART con encoder)");
                 }
                 rx_index = 0;
             } else {
