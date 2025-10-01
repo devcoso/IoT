@@ -22,6 +22,7 @@
 #define PWM_FREQ_HZ         (5000)
 #define PWM_RESOLUTION      (LEDC_TIMER_10_BIT)
 #define LEDC_CHANNEL_ENA    LEDC_CHANNEL_0
+#define MIN_PWM_DUTY        (40)     // 40% duty cycle
 
 // --- Variables Globales y Manejadores ---
 pcnt_unit_handle_t pcnt_unit = NULL;
@@ -175,16 +176,27 @@ void motor_control_task(void *pvParameters) {
     uint8_t rx_buffer[32];
     int rx_index = 0;
     const int control_loop_ms = 50;
-    const float proportional_gain = 1.0f; // Ganancia P
+    const float proportional_gain = 0.1f; // Ganancia P
 
     while (1) {
-        // --- Control de Posición P ---
-        // int error = encoder_setpoint - encoder_ticks;
-        // int duty_to_apply = (int)(error * proportional_gain);
-        int duty_to_apply = encoder_setpoint; // Control directo por setpoint
-        // Saturación
-        if (duty_to_apply > 100) duty_to_apply = 100;
-        else if (duty_to_apply < -100) duty_to_apply = -100;
+        // --- Control de Posición Proporcional ---
+        int error = encoder_setpoint - encoder_ticks;
+        int duty_to_apply = (int)(error * proportional_gain);
+
+        if (error > -10 && error < 10) {
+            duty_to_apply = 0;
+        } else {
+            // Saturar límite máximo y mínimo absoluto
+            if (duty_to_apply > 100) {
+                duty_to_apply = 100;
+            } else if (duty_to_apply < -100) {
+                duty_to_apply = -100;
+            } else if (duty_to_apply >= 0 && duty_to_apply < MIN_PWM_DUTY) {
+                duty_to_apply = MIN_PWM_DUTY;
+            } else if (duty_to_apply <= 0 && duty_to_apply > -MIN_PWM_DUTY) {
+                duty_to_apply = -MIN_PWM_DUTY;
+            }
+        }
 
         motor_duty_percent = duty_to_apply;
         set_motor_speed(motor_duty_percent);
@@ -197,8 +209,7 @@ void motor_control_task(void *pvParameters) {
 
             if (received_char == '\n' || received_char == '\r') {
                 rx_buffer[rx_index] = '\0';
-                
-                sscanf((const char *)rx_buffer, "%d", (int*)&encoder_setpoint);
+                 sscanf((const char *)rx_buffer, "%d", (int*)&encoder_setpoint);
                 rx_index = 0;
             } else {
                 rx_index++;
