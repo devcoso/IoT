@@ -73,43 +73,40 @@ void setup_uart() {
 }
 
 void setup_encoder() {
-    // 1. Configuración de la Unidad PCNT
     pcnt_unit_config_t unit_config = {
-        .low_limit = -32768, .high_limit = 32767, .intr_priority = 0,
+        .low_limit = -32768,
+        .high_limit = 32767,
+        .intr_priority = 0,
     };
     ESP_ERROR_CHECK(pcnt_new_unit(&unit_config, &pcnt_unit));
 
-    // 2. Configuración del Filtro Glitch
     pcnt_glitch_filter_config_t filter_config = {
         .max_glitch_ns = 10000,
     };
     ESP_ERROR_CHECK(pcnt_unit_set_glitch_filter(pcnt_unit, &filter_config));
 
-    // 3. Configuración de Canales (Cuadratura 4X)
-    pcnt_channel_handle_t pcnt_chan_a = NULL;
-    pcnt_chan_config_t chan_config_a = { 
-        .edge_gpio_num = ENCODER_PIN_A, .level_gpio_num = ENCODER_PIN_B,
+    pcnt_channel_handle_t pcnt_chan = NULL;
+    pcnt_chan_config_t chan_config = {
+        .edge_gpio_num = ENCODER_PIN_A,   // Pulso
+        .level_gpio_num = ENCODER_PIN_B,  // Nivel para dirección
     };
-    ESP_ERROR_CHECK(pcnt_new_channel(pcnt_unit, &chan_config_a, &pcnt_chan_a));
+    ESP_ERROR_CHECK(pcnt_new_channel(pcnt_unit, &chan_config, &pcnt_chan));
 
-    pcnt_channel_handle_t pcnt_chan_b = NULL;
-    pcnt_chan_config_t chan_config_b = {
-        .edge_gpio_num = ENCODER_PIN_B, .level_gpio_num = ENCODER_PIN_A,
-    };
-    ESP_ERROR_CHECK(pcnt_new_channel(pcnt_unit, &chan_config_b, &pcnt_chan_b));
-    
-    // 4. Configuración de Acciones de Cuadratura
-    ESP_ERROR_CHECK(pcnt_channel_set_edge_action(pcnt_chan_a, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE));
-    ESP_ERROR_CHECK(pcnt_channel_set_level_action(pcnt_chan_a, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
-    
-    ESP_ERROR_CHECK(pcnt_channel_set_edge_action(pcnt_chan_b, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE));
-    ESP_ERROR_CHECK(pcnt_channel_set_level_action(pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_INVERSE, PCNT_CHANNEL_LEVEL_ACTION_KEEP));
+    // Incrementa en flanco de subida, decrementa en flanco de bajada
+    ESP_ERROR_CHECK(pcnt_channel_set_edge_action(pcnt_chan,
+        PCNT_CHANNEL_EDGE_ACTION_INCREASE,
+        PCNT_CHANNEL_EDGE_ACTION_DECREASE));
 
-    // 5. Arranque
+    // Mantiene la dirección según nivel del pin B
+    ESP_ERROR_CHECK(pcnt_channel_set_level_action(pcnt_chan,
+        PCNT_CHANNEL_LEVEL_ACTION_KEEP,
+        PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
+
     ESP_ERROR_CHECK(pcnt_unit_enable(pcnt_unit));
     ESP_ERROR_CHECK(pcnt_unit_clear_count(pcnt_unit));
     ESP_ERROR_CHECK(pcnt_unit_start(pcnt_unit));
 }
+
 
 // -------------------------------------------------------------------
 // FUNCIÓN DE CONTROL DE MOTOR
@@ -182,9 +179,9 @@ void motor_control_task(void *pvParameters) {
 
     while (1) {
         // --- Control de Posición P ---
-        int error = encoder_setpoint - encoder_ticks;
-        int duty_to_apply = (int)(error * proportional_gain);
-
+        // int error = encoder_setpoint - encoder_ticks;
+        // int duty_to_apply = (int)(error * proportional_gain);
+        int duty_to_apply = encoder_setpoint; // Control directo por setpoint
         // Saturación
         if (duty_to_apply > 100) duty_to_apply = 100;
         else if (duty_to_apply < -100) duty_to_apply = -100;
