@@ -1,0 +1,112 @@
+[
+    {
+        "id": "89892a0273cb81ef",
+        "type": "serial in",
+        "z": "cbed59cfef49fde0",
+        "name": "vp",
+        "serial": "5c9836bfee3ed23a",
+        "x": 210,
+        "y": 180,
+        "wires": [
+            [
+                "ce3c2f8e4d907692"
+            ]
+        ]
+    },
+    {
+        "id": "ce3c2f8e4d907692",
+        "type": "function",
+        "z": "cbed59cfef49fde0",
+        "name": "function 1",
+        "func": "// El 'payload' contiene la cadena de texto de la lectura (ej: \"2048\").\n// parseInt() convierte esa cadena de texto en un número entero.\nmsg.payload = parseInt(msg.payload);\n\n// Verificación de dato válido (opcional, pero buena práctica)\nif (isNaN(msg.payload)) {\n    return null; \n}\n\n\nif (msg.payload > 1) {\n    msg.payload = Math.ceil(-0.06227 * msg.payload + 254.30);\n} else {\n    msg.payload = 270.0;\n}\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 400,
+        "y": 180,
+        "wires": [
+            [
+                "2f75a0b478288568"
+            ]
+        ]
+    },
+    {
+        "id": "2f75a0b478288568",
+        "type": "ui_gauge",
+        "z": "cbed59cfef49fde0",
+        "name": "",
+        "group": "3f8213eb11cc1191",
+        "order": 0,
+        "width": 0,
+        "height": 0,
+        "gtype": "gage",
+        "title": "Ángulo",
+        "label": "units",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "270",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 600,
+        "y": 180,
+        "wires": []
+    },
+    {
+        "id": "5c9836bfee3ed23a",
+        "type": "serial-port",
+        "name": "USB0",
+        "serialport": "/dev/ttyUSB0",
+        "serialbaud": "115200",
+        "databits": 8,
+        "parity": "none",
+        "stopbits": 1,
+        "waitfor": "",
+        "dtr": "none",
+        "rts": "none",
+        "cts": "none",
+        "dsr": "none",
+        "newline": "\\n",
+        "bin": "false",
+        "out": "char",
+        "addchar": "",
+        "responsetimeout": 10000
+    },
+    {
+        "id": "3f8213eb11cc1191",
+        "type": "ui_group",
+        "name": "Goniómetro",
+        "tab": "6014e014ca0bedde",
+        "order": 1,
+        "disp": true,
+        "width": 6,
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "6014e014ca0bedde",
+        "type": "ui_tab",
+        "name": "Home",
+        "icon": "dashboard",
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "1347898b71bd432f",
+        "type": "global-config",
+        "env": [],
+        "modules": {
+            "node-red-node-serialport": "2.0.3",
+            "node-red-dashboard": "3.6.6"
+        }
+    }
+]
