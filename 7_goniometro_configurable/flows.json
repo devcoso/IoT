@@ -1,0 +1,190 @@
+[
+    {
+        "id": "c1d4a0b2.1c8c68",
+        "type": "tab",
+        "label": "ESP32 Ángulo (Serial Bidireccional)",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "1534b819f71b953a",
+        "type": "serial in",
+        "z": "c1d4a0b2.1c8c68",
+        "name": "RX: Ángulo desde ESP32",
+        "serial": "2e0a2b4f.5a4f6e",
+        "x": 200,
+        "y": 140,
+        "wires": [
+            [
+                "8911e3b6d07e289f"
+            ]
+        ]
+    },
+    {
+        "id": "8911e3b6d07e289f",
+        "type": "function",
+        "z": "c1d4a0b2.1c8c68",
+        "name": "Extraer Valor 'A:'",
+        "func": "// El ESP32 envía \"A:123.45\\n\".\n// Extrae el número y lo convierte a tipo float.\n\nlet payload = msg.payload.trim();\n\nnode.log(payload);\n\nif (payload.startsWith(\"A:\")) {\n    // Quita el prefijo \"A:\" (2 caracteres) y convierte el resto a número\n    let num_str = payload.substring(2);\n    msg.payload = parseFloat(num_str);\n    return msg;\n} \n// Si el formato es incorrecto, no se envía nada.\nreturn null;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 420,
+        "y": 140,
+        "wires": [
+            [
+                "e50e504c8651c6ed"
+            ]
+        ]
+    },
+    {
+        "id": "e50e504c8651c6ed",
+        "type": "ui_gauge",
+        "z": "c1d4a0b2.1c8c68",
+        "name": "Ángulo Actual",
+        "group": "d6f4c1fa0b514e8b",
+        "order": 1,
+        "width": 6,
+        "height": 4,
+        "gtype": "gage",
+        "title": "Ángulo de Posición",
+        "label": "Grados (°)",
+        "format": "{{value | number:2}}",
+        "min": 0,
+        "max": "270",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "90",
+        "seg2": "180",
+        "diff": false,
+        "className": "",
+        "x": 660,
+        "y": 140,
+        "wires": []
+    },
+    {
+        "id": "31b4b574488390b3",
+        "type": "ui_form",
+        "z": "c1d4a0b2.1c8c68",
+        "name": "Formulario de Calibración",
+        "group": "d6f4c1fa0b514e8b",
+        "order": 2,
+        "width": 6,
+        "height": 4,
+        "options": [
+            {
+                "label": "Pendiente (m)",
+                "value": "pendiente_m",
+                "type": "text",
+                "required": true,
+                "rows": null
+            },
+            {
+                "label": "Ordenada (b)",
+                "value": "ordenada_b",
+                "type": "text",
+                "required": true,
+                "rows": null
+            }
+        ],
+        "formValue": {
+            "pendiente_m": "-0.06227",
+            "ordenada_b": "254.30"
+        },
+        "payload": "",
+        "submit": "Enviar Calibración",
+        "cancel": "Reset",
+        "topic": "calibracion",
+        "x": 210,
+        "y": 300,
+        "wires": [
+            [
+                "6296715f1896791e"
+            ]
+        ]
+    },
+    {
+        "id": "6296715f1896791e",
+        "type": "function",
+        "z": "c1d4a0b2.1c8c68",
+        "name": "Formato 'm,b'",
+        "func": "// Toma los valores del formulario y los une en una cadena separada por comas.\n// Formato para ESP32: \"m,b\"\n\nlet m = msg.payload.pendiente_m;\nlet b = msg.payload.ordenada_b;\n\n// El ESP32 espera una cadena simple de valores separados por coma.\nmsg.payload = `${m},${b}`;\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 420,
+        "y": 300,
+        "wires": [
+            [
+                "197d19551c64117e"
+            ]
+        ]
+    },
+    {
+        "id": "197d19551c64117e",
+        "type": "serial out",
+        "z": "c1d4a0b2.1c8c68",
+        "name": "TX: Calibración a ESP32",
+        "serial": "2e0a2b4f.5a4f6e",
+        "x": 660,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "2e0a2b4f.5a4f6e",
+        "type": "serial-port",
+        "name": "USB0",
+        "serialport": "/dev/ttyUSB0",
+        "serialbaud": "115200",
+        "databits": 8,
+        "parity": "none",
+        "stopbits": 1,
+        "waitfor": "",
+        "dtr": "none",
+        "rts": "none",
+        "cts": "none",
+        "dsr": "none",
+        "newline": "\\n",
+        "bin": "false",
+        "out": "char",
+        "addchar": "\\n",
+        "responsetimeout": "10000"
+    },
+    {
+        "id": "d6f4c1fa0b514e8b",
+        "type": "ui_group",
+        "name": "Control de Ángulo",
+        "tab": "b3e4f7c8.0b30f8",
+        "order": 1,
+        "disp": true,
+        "width": "6",
+        "collapse": false
+    },
+    {
+        "id": "b3e4f7c8.0b30f8",
+        "type": "ui_tab",
+        "name": "Control ESP32",
+        "icon": "dashboard",
+        "order": 1,
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "37a81f13abcf8a91",
+        "type": "global-config",
+        "env": [],
+        "modules": {
+            "node-red-node-serialport": "2.0.3",
+            "node-red-dashboard": "3.6.6"
+        }
+    }
+]
