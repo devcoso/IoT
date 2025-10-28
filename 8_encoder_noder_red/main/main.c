@@ -27,6 +27,7 @@
 // --- Variables Globales y Manejadores ---
 pcnt_unit_handle_t pcnt_unit = NULL;
 volatile int encoder_ticks = 0; 
+volatile float proportional_gain = 0.1f;
 volatile int motor_duty_percent = 0;
 volatile int encoder_setpoint = 0; 
 
@@ -179,7 +180,6 @@ void motor_control_task(void *pvParameters) {
     uint8_t rx_buffer[32];
     int rx_index = 0;
     const int control_loop_ms = 50;
-    const float proportional_gain = 0.1f; // Ganancia P
 
     while (1) {
         // --- Control de Posición Proporcional ---
@@ -212,7 +212,15 @@ void motor_control_task(void *pvParameters) {
 
             if (received_char == '\n' || received_char == '\r') {
                 rx_buffer[rx_index] = '\0';
-                 sscanf((const char *)rx_buffer, "%d", (int*)&encoder_setpoint);
+
+                if (strncmp((const char*)rx_buffer, "KP:", 3) == 0) {
+                    float new_kp = atof((const char*)rx_buffer + 3);
+                    if (new_kp > 0 && new_kp < 5) { // Pon rango seguro
+                        proportional_gain = new_kp;
+                    }
+                } else {
+                    sscanf((const char *)rx_buffer, "%d", (int*)&encoder_setpoint);
+                }
                 rx_index = 0;
             } else {
                 rx_index++;

@@ -13,12 +13,11 @@
         "z": "e399374c21ab7d48",
         "name": "RX: Motor Data (Binario)",
         "serial": "2e0a2b4f.5a4f6e",
-        "x": 110,
-        "y": 140,
+        "x": 310,
+        "y": 200,
         "wires": [
             [
-                "c51639377e0d9173",
-                "47fa2fa885dd5567"
+                "c51639377e0d9173"
             ]
         ]
     },
@@ -34,8 +33,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 440,
-        "y": 140,
+        "x": 640,
+        "y": 200,
         "wires": [
             [
                 "4717b0e03ba54435",
@@ -62,8 +61,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 690,
-        "y": 100,
+        "x": 890,
+        "y": 160,
         "wires": [
             [
                 "2eb610bd8923f7cc"
@@ -89,8 +88,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 680,
-        "y": 180,
+        "x": 880,
+        "y": 240,
         "wires": [
             [
                 "a33abb9f4954e428",
@@ -122,8 +121,8 @@
         "seg2": "20000",
         "diff": false,
         "className": "",
-        "x": 920,
-        "y": 220,
+        "x": 1120,
+        "y": 280,
         "wires": []
     },
     {
@@ -143,20 +142,28 @@
                 "type": "number",
                 "required": true,
                 "rows": null
+            },
+            {
+                "label": "KP",
+                "value": "kp",
+                "type": "number",
+                "required": true,
+                "rows": null
             }
         ],
         "formValue": {
-            "setpoint": ""
+            "setpoint": "",
+            "kp": ""
         },
         "payload": "",
-        "submit": "Enviar Setpoint",
+        "submit": "Enviar",
         "cancel": "Reset",
         "topic": "setpoint",
         "topicType": "str",
         "splitLayout": false,
         "className": "",
-        "x": 180,
-        "y": 320,
+        "x": 320,
+        "y": 440,
         "wires": [
             [
                 "73f5af7da53c2000"
@@ -168,17 +175,19 @@
         "type": "function",
         "z": "e399374c21ab7d48",
         "name": "Formato Texto con \\n",
-        "func": "// El ESP32 espera un número entero terminado en \\n\nlet setpoint = msg.payload.setpoint;\n\n// Convertir a string y agregar salto de línea\nmsg.payload = setpoint.toString() + \"\\n\";\n\nreturn msg;",
+        "func": "// El ESP32 espera un número entero terminado en \\n\nlet setpoint = msg.payload.setpoint;\nlet kp = msg.payload.kp\n\n// Convertir a string y agregar salto de línea\nmsg.payload = {\n    setpoint: setpoint.toString() + \"\\n\",\n    kp: \"KP:\" + kp.toString() + \"\\n\"\n}\nreturn msg;",
         "outputs": 1,
+        "timeout": "",
         "noerr": 0,
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 420,
-        "y": 320,
+        "x": 560,
+        "y": 440,
         "wires": [
             [
-                "c031992fe8e55d53"
+                "a31fdb9270889332",
+                "ad2bcaa1b2fd633e"
             ]
         ]
     },
@@ -188,25 +197,8 @@
         "z": "e399374c21ab7d48",
         "name": "TX: Setpoint a ESP32",
         "serial": "2e0a2b4f.5a4f6e",
-        "x": 680,
-        "y": 320,
-        "wires": []
-    },
-    {
-        "id": "47fa2fa885dd5567",
-        "type": "debug",
-        "z": "e399374c21ab7d48",
-        "name": "Debug RAW",
-        "active": true,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "payload",
-        "targetType": "msg",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 370,
-        "y": 240,
+        "x": 1080,
+        "y": 400,
         "wires": []
     },
     {
@@ -229,7 +221,7 @@
         "ymax": "",
         "removeOlder": "5",
         "removeOlderPoints": "",
-        "removeOlderUnit": "60",
+        "removeOlderUnit": "3600",
         "cutout": 0,
         "useOneColor": false,
         "useUTC": false,
@@ -247,8 +239,8 @@
         "outputs": 1,
         "useDifferentColor": false,
         "className": "",
-        "x": 950,
-        "y": 160,
+        "x": 1150,
+        "y": 220,
         "wires": [
             []
         ]
@@ -270,9 +262,73 @@
         "font": "Impact,Impact,Charcoal,sans-serif",
         "fontSize": 16,
         "color": "#000000",
-        "x": 960,
-        "y": 100,
+        "x": 1160,
+        "y": 160,
         "wires": []
+    },
+    {
+        "id": "a31fdb9270889332",
+        "type": "change",
+        "z": "e399374c21ab7d48",
+        "name": "Extraer SetPoint",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.setpoint",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 840,
+        "y": 400,
+        "wires": [
+            [
+                "c031992fe8e55d53"
+            ]
+        ]
+    },
+    {
+        "id": "44e4d117f503401a",
+        "type": "serial out",
+        "z": "e399374c21ab7d48",
+        "name": "TX: KP to ESP32",
+        "serial": "2e0a2b4f.5a4f6e",
+        "x": 1090,
+        "y": 500,
+        "wires": []
+    },
+    {
+        "id": "ad2bcaa1b2fd633e",
+        "type": "change",
+        "z": "e399374c21ab7d48",
+        "name": "Extraer KP",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.kp",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 830,
+        "y": 500,
+        "wires": [
+            [
+                "44e4d117f503401a"
+            ]
+        ]
     },
     {
         "id": "2e0a2b4f.5a4f6e",
@@ -315,7 +371,7 @@
         "hidden": false
     },
     {
-        "id": "81c610d01c0aaecc",
+        "id": "a4f0ed69873caae3",
         "type": "global-config",
         "env": [],
         "modules": {
