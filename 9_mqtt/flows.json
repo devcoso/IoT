@@ -1,26 +1,297 @@
 [
     {
-        "id": "c9d8e7f6a5b4c3d2e1f00",
-        "type": "mqtt out",
-        "z": "cda328086c049b63",
-        "name": "Publicar Comando ON/OFF",
-        "topic": "comando/led",
-        "qos": "0",
-        "retain": "false",
-        "respTopic": "",
-        "contentType": "",
-        "userProps": "",
-        "correl": "",
-        "expiry": "",
-        "broker": "16be2861b90145e4",
-        "x": 700,
+        "id": "c51639377e0d9173",
+        "type": "function",
+        "z": "e399374c21ab7d48",
+        "name": "Parse Binary Packet (7 bytes)",
+        "func": "// String D:0,T:0\nif (msg?.payload) {\n\n    // Parsear string formato \"T:0,D:0\"\n    if (typeof msg.payload === \"string\") {\n        try {\n            // Separar los pares por coma\n            let partes = msg.payload.split(\",\");\n            let direction = 0, ticks = 0;\n\n            // Extraer cada valor del string\n            partes.forEach(parte => {\n                let [key, value] = parte.split(\":\");\n                key = key.trim().toLowerCase();\n                value = parseInt(value, 10);\n                if (key === \"d\") direction = value;\n                if (key === \"t\") ticks = value;\n            });\n\n            // Reasignar los valores obtenidos\n            msg.payload = {\n                direction: direction === 0 ? '-------' : direction <  0 ? 'horario' : 'antihorario',\n                ticks: ticks\n            };\n        } catch (e) {\n            // Si algo falla, retornar null\n            return null;\n        }\n\n        return msg;\n    }\n\n    // Si msg.payload ya es objeto, usa los valores existentes si existen\n    msg.payload = {\n        direction: msg.payload.direction || 0,\n        ticks: msg.payload.ticks || 0\n    };\n\n    return msg;\n}\n\n// [translate:Si el paquete no es válido, no enviar nada]\nreturn null;\n",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 640,
+        "y": 200,
+        "wires": [
+            [
+                "4717b0e03ba54435",
+                "3be8b4b549138ed4"
+            ]
+        ]
+    },
+    {
+        "id": "4717b0e03ba54435",
+        "type": "change",
+        "z": "e399374c21ab7d48",
+        "name": "Extraer Direction",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.direction",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 890,
+        "y": 160,
+        "wires": [
+            [
+                "2eb610bd8923f7cc"
+            ]
+        ]
+    },
+    {
+        "id": "3be8b4b549138ed4",
+        "type": "change",
+        "z": "e399374c21ab7d48",
+        "name": "Extraer Ticks",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.ticks",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 880,
+        "y": 240,
+        "wires": [
+            [
+                "a33abb9f4954e428",
+                "165d834d79637866"
+            ]
+        ]
+    },
+    {
+        "id": "a33abb9f4954e428",
+        "type": "ui_gauge",
+        "z": "e399374c21ab7d48",
+        "name": "Encoder Ticks",
+        "group": "e1f2g3h4i5j6k7l8",
+        "order": 2,
+        "width": 6,
+        "height": 4,
+        "gtype": "gage",
+        "title": "",
+        "label": "ticks",
+        "format": "{{value}}",
+        "min": "-32768",
+        "max": "32767",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "10000",
+        "seg2": "20000",
+        "diff": false,
+        "className": "",
+        "x": 1120,
         "y": 280,
         "wires": []
     },
     {
-        "id": "7c6bd61bf154542c",
+        "id": "b58fea213167eb83",
+        "type": "ui_form",
+        "z": "e399374c21ab7d48",
+        "name": "Setpoint Control",
+        "label": "",
+        "group": "e1f2g3h4i5j6k7l8",
+        "order": 3,
+        "width": 6,
+        "height": 3,
+        "options": [
+            {
+                "label": "Setpoint (ticks)",
+                "value": "setpoint",
+                "type": "number",
+                "required": true,
+                "rows": null
+            },
+            {
+                "label": "KP",
+                "value": "kp",
+                "type": "number",
+                "required": true,
+                "rows": null
+            }
+        ],
+        "formValue": {
+            "setpoint": "",
+            "kp": ""
+        },
+        "payload": "",
+        "submit": "Enviar",
+        "cancel": "Reset",
+        "topic": "setpoint",
+        "topicType": "str",
+        "splitLayout": false,
+        "className": "",
+        "x": 320,
+        "y": 440,
+        "wires": [
+            [
+                "73f5af7da53c2000"
+            ]
+        ]
+    },
+    {
+        "id": "73f5af7da53c2000",
+        "type": "function",
+        "z": "e399374c21ab7d48",
+        "name": "Formato Texto con \\n",
+        "func": "// El ESP32 espera un número entero terminado en \\n\nlet setpoint = msg.payload.setpoint;\nlet kp = msg.payload.kp\n\n// Convertir a string y agregar salto de línea\nmsg.payload = {\n    setpoint: setpoint.toString() + \"\\n\",\n    kp: kp.toString() + \"\\n\"\n}\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 560,
+        "y": 440,
+        "wires": [
+            [
+                "a31fdb9270889332",
+                "ad2bcaa1b2fd633e"
+            ]
+        ]
+    },
+    {
+        "id": "165d834d79637866",
+        "type": "ui_chart",
+        "z": "e399374c21ab7d48",
+        "name": "Posicón del motor",
+        "group": "e1f2g3h4i5j6k7l8",
+        "order": 0,
+        "width": "13",
+        "height": "13",
+        "label": "",
+        "chartType": "line",
+        "legend": "true",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "",
+        "dot": false,
+        "ymin": "",
+        "ymax": "",
+        "removeOlder": "5",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "3600",
+        "cutout": 0,
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#1f77b4",
+            "#aec7e8",
+            "#ff7f0e",
+            "#2ca02c",
+            "#98df8a",
+            "#d62728",
+            "#ff9896",
+            "#9467bd",
+            "#c5b0d5"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 1150,
+        "y": 220,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "2eb610bd8923f7cc",
+        "type": "ui_text",
+        "z": "e399374c21ab7d48",
+        "group": "e1f2g3h4i5j6k7l8",
+        "order": 2,
+        "width": 0,
+        "height": 0,
+        "name": "",
+        "label": "Sentido del giro",
+        "format": "{{msg.payload }}",
+        "layout": "row-center",
+        "className": "",
+        "style": true,
+        "font": "Impact,Impact,Charcoal,sans-serif",
+        "fontSize": 16,
+        "color": "#000000",
+        "x": 1160,
+        "y": 160,
+        "wires": []
+    },
+    {
+        "id": "a31fdb9270889332",
+        "type": "change",
+        "z": "e399374c21ab7d48",
+        "name": "Extraer SetPoint",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.setpoint",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 840,
+        "y": 400,
+        "wires": [
+            [
+                "9e62263241eadd17"
+            ]
+        ]
+    },
+    {
+        "id": "ad2bcaa1b2fd633e",
+        "type": "change",
+        "z": "e399374c21ab7d48",
+        "name": "Extraer KP",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.kp",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 830,
+        "y": 500,
+        "wires": [
+            [
+                "8c56e360adff1d18"
+            ]
+        ]
+    },
+    {
+        "id": "8c886daa31885097",
         "type": "debug",
-        "z": "cda328086c049b63",
+        "z": "e399374c21ab7d48",
         "name": "debug 1",
         "active": true,
         "tosidebar": true,
@@ -29,54 +300,89 @@
         "complete": "false",
         "statusVal": "",
         "statusType": "auto",
-        "x": 640,
-        "y": 340,
+        "x": 560,
+        "y": 280,
         "wires": []
     },
     {
-        "id": "04b0544cc2497f93",
-        "type": "ui_switch",
-        "z": "cda328086c049b63",
+        "id": "a65405823d15d9dc",
+        "type": "mqtt in",
+        "z": "e399374c21ab7d48",
         "name": "",
-        "label": "Led",
-        "tooltip": "Prender/Apagar",
-        "group": "41283776987d978a",
-        "order": 0,
-        "width": 0,
-        "height": 0,
-        "passthru": true,
-        "decouple": "false",
-        "topic": "topic",
-        "topicType": "msg",
-        "style": "",
-        "onvalue": true,
-        "onvalueType": "num",
-        "onicon": "",
-        "oncolor": "",
-        "offvalue": false,
-        "offvalueType": "num",
-        "officon": "",
-        "offcolor": "",
-        "animate": false,
-        "className": "",
+        "topic": "motor/estado",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "16be2861b90145e4",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
         "x": 330,
-        "y": 260,
+        "y": 220,
         "wires": [
             [
-                "7c6bd61bf154542c",
-                "c9d8e7f6a5b4c3d2e1f00"
+                "c51639377e0d9173",
+                "8c886daa31885097"
             ]
         ]
+    },
+    {
+        "id": "9e62263241eadd17",
+        "type": "mqtt out",
+        "z": "e399374c21ab7d48",
+        "name": "",
+        "topic": "motor/setpoint",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "16be2861b90145e4",
+        "x": 1120,
+        "y": 400,
+        "wires": []
+    },
+    {
+        "id": "8c56e360adff1d18",
+        "type": "mqtt out",
+        "z": "e399374c21ab7d48",
+        "name": "",
+        "topic": "motor/kp",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "16be2861b90145e4",
+        "x": 1040,
+        "y": 500,
+        "wires": []
+    },
+    {
+        "id": "e1f2g3h4i5j6k7l8",
+        "type": "ui_group",
+        "name": "Contro de posición de motor.",
+        "tab": "f1g2h3i4j5k6l7m8",
+        "order": 1,
+        "disp": true,
+        "width": "13",
+        "collapse": false,
+        "className": ""
     },
     {
         "id": "16be2861b90145e4",
         "type": "mqtt-broker",
         "name": "MQTT",
-        "broker": "192.168.4.43",
-        "port": 1883,
+        "broker": "70e60bddcd3e4397a0835e6bedc33a72.s1.eu.hivemq.cloud",
+        "port": "8883",
+        "tls": "",
         "clientid": "",
         "autoConnect": true,
-        "usetls": false,
+        "usetls": true,
         "protocolVersion": 4,
         "keepalive": 60,
         "cleansession": true,
@@ -100,26 +406,16 @@
         "sessionExpiry": ""
     },
     {
-        "id": "41283776987d978a",
-        "type": "ui_group",
-        "name": "Main",
-        "tab": "80df3b7d1612c04d",
-        "order": 1,
-        "disp": true,
-        "width": 6,
-        "collapse": false,
-        "className": ""
-    },
-    {
-        "id": "80df3b7d1612c04d",
+        "id": "f1g2h3i4j5k6l7m8",
         "type": "ui_tab",
-        "name": "Home",
+        "name": "Motor PID ESP32",
         "icon": "dashboard",
+        "order": 1,
         "disabled": false,
         "hidden": false
     },
     {
-        "id": "1236be57f166596d",
+        "id": "8866eefdd9c906e0",
         "type": "global-config",
         "env": [],
         "modules": {
